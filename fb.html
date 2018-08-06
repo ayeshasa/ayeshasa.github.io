@@ -1,0 +1,400 @@
+</<!DOCTYPE html>
+<html>
+<head>
+	<title></title>
+  <style>
+  .post-list {
+    white-space: pre-wrap;
+  }
+  </style>
+</head>
+<body>
+<script>
+  window.fbAsyncInit = function() {
+    FB.init({
+      appId      : '1077245369008098',
+      xfbml      : true,
+      version    : 'v2.6'
+    })
+    FB.getLoginStatus(function(response) {
+	  if (response.status === 'connected') {
+	    console.log('Logged in.');
+	  }
+	  else {
+	    FB.login();
+	  }
+	});
+  };
+
+  (function(d, s, id){
+     var js, fjs = d.getElementsByTagName(s)[0];
+     if (d.getElementById(id)) {return;}
+     js = d.createElement(s); js.id = id;
+     js.src = "https://connect.facebook.net/en_US/sdk.js";
+     fjs.parentNode.insertBefore(js, fjs);
+   }(document, 'script', 'facebook-jssdk'));
+</script>
+
+<script>
+var posts = {};
+var postList = [];
+
+var getJSON = function(url, callback) {
+    var xhr = new XMLHttpRequest();
+    xhr.open("get", url, true);
+    xhr.responseType = "json";
+    xhr.onload = function() {
+      var status = xhr.status;
+      if (status == 200) {
+        callback(null, xhr.response);
+      } else {
+        callback(status);
+      }
+    };
+    xhr.send();
+};
+
+// Only works after `FB.init` is called
+function myFacebookLogin() {
+  FB.login(function(){
+  // Note: The call will only work if you accept the permission request
+  // FB.api('/me/feed', 'post', {message: 'Hello, world!'});
+}, {scope: 'publish_actions,user_posts'});
+}
+
+function getFeed() {
+/* make the API call */
+var timestampStart = document.getElementById("start").value;
+var timestampEnd = document.getElementById("until").value;
+
+FB.api(
+    "/me/feed?since=" + timestampStart + "&until=" + timestampEnd,
+    function (response) {
+      posts = {};
+      postList = [];
+      recordResponse(response, 1);
+    }
+);}
+
+function getPost(postId) {
+  if (!postId) {
+    postId = document.getElementById("post_id").value;
+  }
+  FB.api(
+    "/"+ postId,
+    function (response) {
+      //posts = {};
+      //postList = [];
+      recordSinglePost(response);
+    }
+  );
+}
+
+function recordSinglePost(response) {
+  if (response && response.error) {
+    alert("Something went wrong: " + response.error);
+    console.log(response.error);
+  }
+  if (response && !response.error) {
+    var objectId = response.id;
+    posts[objectId] = {};
+    //this might be able to go
+    posts[objectId].id = objectId;
+    //comment out line below to find bug
+    posts[objectId].reactions = [];
+    posts[objectId].message = response.message;
+    posts[objectId].created_time = response.created_time;
+    hasPicture(objectId);
+    getLikes(objectId, "");
+  }
+  postList = Object.keys(posts).map(function(key){
+      return posts[key];
+    });
+}
+
+function recordResponse(response, pageNum) {
+  if (response && response.error) {
+    alert("Something went wrong: " + response.error);
+    console.log(response.error);
+  }
+  if (response && !response.error) {
+    for (var i = 0; i < response.data.length; i++){
+      a = response;
+      var objectId = response.data[i].id;
+      posts[objectId] = {};
+      //this might be able to go
+      posts[objectId].id = objectId;
+      //comment out line below to find bug
+      posts[objectId].reactions = [];
+      posts[objectId].message = response.data[i].message;
+      posts[objectId].created_time = response.data[i].created_time;
+      hasPicture(objectId);
+      getLikes(objectId, "");
+    }
+    if (response.paging && response.paging.next) {
+      if (pageNum % 20 == 0) {
+        console.log("Finished page " + pageNum);        
+      }
+      getJSON(response.paging.next,
+      function(err, data) {
+        if (err != null) {
+          alert("Something went wrong: " + err);
+        } else {
+          recordResponse(data, pageNum + 1);
+        }
+      }); 
+    } else {
+      alert("Finished! Found " + Object.keys(posts).length + 
+        " posts!");
+      //analyzePosts();
+    }
+    postList = Object.keys(posts).map(function(key){
+        return posts[key];
+      });
+  }
+
+}
+
+function checkPosts() {
+  postList.forEach(function(post) {
+    if (!post.message) {
+      getPost(post.id);
+    }
+  })
+}
+
+function hasPicture(objectId) {
+  FB.api(
+    "/" + objectId + "?fields=picture",
+    function (response) {
+      if (response && !response.error && response.picture) {
+        posts[objectId].picture = true;
+      } else {
+        if (response.error) {
+          alert(error);
+        }
+        posts[objectId].picture = false;
+      }
+    }
+  );
+}
+
+function getLikes(objectId, after) {
+  FB.api(
+      "/" + objectId + "/reactions" + after,
+      function (response) {
+        if (!posts[objectId].reactions){
+            posts[objectId].reactions = [];
+        }
+        if (response && !response.error) {
+          /* handle the result */
+          posts[objectId].reactions = posts[objectId].reactions.concat(response.data);
+          if (response.paging && response.paging.next) {
+            getLikes(objectId, "?after=" + response.paging.cursors.after);
+          } else {
+            //console.log(posts[objectId].message);
+            //console.log(posts[objectId].reactions.length);
+          }
+        }
+      }
+  );
+}
+
+function averageReactions() {
+  var total = postList.size;
+  var sum = 0;
+  postList.forEach(function(post) {
+    try {
+      sum += post.reactions.length;
+    } catch (err) {
+      console.log(err);
+      console.log(post.id);
+      // debugger;
+    }
+  })
+  return sum/total;
+}
+
+function standardDeviation(average) {
+  var total = postList.size;
+  var sum = 0;
+  postList.forEach(function(post) {
+    if (post.reactions) {
+      sum += Math.pow(post.reactions.length - average, 2);
+    }
+  })
+  return Math.sqrt(sum/(total - 1));
+}
+
+function standardDeviationAbovePosts(avg, stdDev, num, max) {
+  //for post, if it has more than num*stdDev likes, add it
+  var results = [];
+  postList.forEach(function(post) {
+    if (post.reactions && post.reactions.length > avg + stdDev*num) {
+      if (!max || (max && post.reactions.length < avg + stdDev*max)){
+        results.push(post.id);        
+      }
+    }    
+  })
+  return results;
+}
+
+function standardDeviationBelowPosts(avg, stdDev, num, min) {
+  //for post, if it has more than num*stdDev likes, add it
+  var results = [];
+  postList.forEach(function(post) {
+    if (post.reactions && post.reactions.length < avg - stdDev*num) {
+      if (!max || (max && post.reactions.length > avg - stdDev*max)){
+        results.push(post.id);        
+      }
+    }       
+  })
+  return results;
+}
+
+function lowestPercentOfPosts(percent) {
+  var keys = Object.keys(posts);
+  var total = keys.length;
+  var results = [];
+  var index = total * percent / 100;
+  postList = postList.sort(function(a, b) {
+    return parseFloat(a.reactions.length) - parseFloat(b.reactions.length);
+    });
+
+  for (var i = 0; i <= index; i++) {
+    results.push(postList[i].id);        
+  }
+  return results;
+}
+
+function concatPosts(postIdList) {
+  var resultString = "";
+  for (var i=0; i < postIdList.length; i++){
+    var post = posts[postIdList[i]];
+    try {
+      resultString += post.message + 
+          "\n NUMBER OF REACTIONS:" + post.reactions.length + 
+          "\n HAS PICTURE:" + post.picture + "\n\n";
+    }
+    catch (err) {
+      console.log("in concatPosts");
+      console.log(err);
+      console.log(post);
+      debugger;
+    }
+  }
+  return resultString;
+}
+
+function analyzePosts() {
+  var avgNum = averageReactions();
+  document.getElementById("avg-value").innerHTML = avgNum;
+
+  var stdDev = standardDeviation(avgNum);
+  document.getElementById("std-value").innerHTML = stdDev;
+
+  var std1 = standardDeviationAbovePosts(avgNum, stdDev, 1, 2);
+  document.getElementById("std-1-num").innerHTML = std1.length;
+  document.getElementById("std-1-posts").innerHTML = concatPosts(std1);
+  console.log("1 std");
+  console.log(std1);
+
+  var std2 = standardDeviationAbovePosts(avgNum, stdDev, 2, 3);
+  document.getElementById("std-2-num").innerHTML = std2.length;
+  document.getElementById("std-2-posts").innerHTML = concatPosts(std2);
+  console.log("2 std");
+  console.log(std2);
+
+  var std = standardDeviationAbovePosts(avgNum, stdDev, 3);
+  document.getElementById("std-num").innerHTML = std.length;
+  document.getElementById("std-posts").innerHTML = concatPosts(std);
+  console.log("3+ std");
+  console.log(std);
+
+  var std1b = standardDeviationBelowPosts(avgNum, stdDev, 2, 1);
+  document.getElementById("std-1b-num").innerHTML = std1b.length;
+  document.getElementById("std-1b-posts").innerHTML = concatPosts(std1b);
+  console.log("1b std");
+  console.log(std1b);
+
+  var std2b = standardDeviationBelowPosts(avgNum, stdDev, 3, 2);
+  document.getElementById("std-2b-num").innerHTML = std2b.length;
+  document.getElementById("std-2b-posts").innerHTML = concatPosts(std2b);
+  console.log("2b std");
+  console.log(std2b);
+
+  var stdb = standardDeviationBelowPosts(avgNum, stdDev, 3);
+  document.getElementById("stdb-num").innerHTML = stdb.length;
+  document.getElementById("stdb-posts").innerHTML = concatPosts(stdb);
+  console.log("3b std");
+  console.log(stdb);
+
+  var low10 = lowestPercentOfPosts(10);
+  document.getElementById("low-10").innerHTML = low10.length;
+  document.getElementById("low-10-posts").innerHTML = concatPosts(low10);
+  console.log("low10");
+  console.log(low10);
+
+}
+
+// graph: average number of likes, standard deviation
+
+
+//store: how many likes, who liked it, type
+//store: who are my friends and when did they become my friend?
+//for each post: what are the tiers of popularity for a post, avg, standard deviation, are they split into time bands
+//for a person: who likes most of my posts? Who has never liked anything?
+
+</script>
+<button onclick="myFacebookLogin()">Login with Facebook</button>
+<input id="start" type="text" hint="From" value="1451606400">
+<input id="until" type="text" hint="To" value="">
+<button onclick="getFeed()">get my feed</button><br />
+
+<input id="post_id">
+<button onclick="getPost()">get post</button><br/>
+
+<h1 id="avg-title">Average Number of Likes: </h1>
+<div id="avg-value"></div>
+<h1 id="std-title">Standard Deviation of Likes: </h1>
+<div id="std-value"></div>
+
+<h1>Posts 1 Standard Deviation Above Average</h1>
+<div id="std-1-num"></div><br/>
+<div class="post-list" id="std-1-posts"></div>
+<h1>Posts 2 Standard Deviations Above Average</h1>
+<div id="std-2-num"></div><br/>
+<div class="post-list" id="std-2-posts"></div>
+<h1>Posts More Than 2 Standard Deviations Above Average</h1>
+<div id="std-num"></div><br/>
+<div class="post-list" id="std-posts"></div>
+
+<h1>Posts 1 Standard Deviation Below Average</h1>
+<div id="std-1b-num"></div><br/>
+<div class="post-list" id="std-1b-posts"></div><br/>
+<h1>Posts 2 Standard Deviations Below Average</h1>
+<div id="std-2b-num"></div><br/>
+<div class="post-list" id="std-2b-posts"></div><br/>
+<h1>Posts More Than 2 Standard Deviations Below Average</h1>
+<div id="stdb-num"></div><br/>
+<div class="post-list" id="stdb-posts"></div><br/>
+
+<h1>Lowest 10% of Posts</h1>
+<div id="low-10"></div><br/>
+<div class="post-list" id="low-10-posts"></div><br/>
+
+<h1>Questions to Answer</h1>
+<ul>
+  <li>What kind of posts get me the most likes?</li>
+    <ul>
+      <li>Do photos matter?</li>
+      <li>Humor?</li>
+      <li>Seriousness?</li>
+      <li>Who is tagged in the post?</li>
+      <li>How many people have access to see each post anyway?</li>
+      <li>Can I take into account how many friends I had at the time or no?</li>
+    </ul>
+  <li>Who is actually paying attention to what I post?</li>
+</ul>
+</body>
+</html>
